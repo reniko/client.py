@@ -17,6 +17,7 @@ const PIXEL_WIDTH: f32 = 50.0;
 const ROUND_TO_DIGITS: usize = 3;
 
 /// Trace point
+#[derive(Debug, PartialEq)]
 struct TracePoint {
     x: i16,
     y: i16,
@@ -59,59 +60,63 @@ enum SvgPathCommand {
     VerticalLineBy,
 }
 
-fn points_to_svg_path(points: &[Point]) -> String {
+fn points_to_svg_path(points: &[Point]) -> Option<String> {
     // Until https://github.com/bodoni/svg/issues/68 is not implemented
     // we need to generate the path manually to avoid the extra spaces/characters which can be omitted
+    if points.len() < 2 {
+        // Not enough points to generate a path
+        return None;
+    }
+
     let mut svg_path = String::new();
     let mut last_command = SvgPathCommand::MoveTo;
 
-    if let Some(first_p) = points.first() {
-        let space = if 0.0 < first_p.y { " " } else { "" };
-        svg_path.push_str(&format!("M{}{}{}", first_p.x, space, first_p.y));
-    }
+    let first_p = points.first().unwrap();
+    let space = if 0.0 < first_p.y { " " } else { "" };
+    svg_path.push_str(&format!("M{}{}{}", first_p.x, space, first_p.y));
 
     for pair in points.windows(2) {
-        if let [prev_p, p] = pair {
-            let x = round(p.x - prev_p.x, ROUND_TO_DIGITS);
-            let y = round(p.y - prev_p.y, ROUND_TO_DIGITS);
-            if x == 0.0 && y == 0.0 {
-                continue;
-            }
+        let prev_p = &pair[0];
+        let p = &pair[1];
+        let x = round(p.x - prev_p.x, ROUND_TO_DIGITS);
+        let y = round(p.y - prev_p.y, ROUND_TO_DIGITS);
+        if x == 0.0 && y == 0.0 {
+            continue;
+        }
 
-            if !p.connected {
-                let space = if 0.0 < y { " " } else { "" };
-                svg_path.push_str(&format!("m{}{}{}", x, space, y));
-                last_command = SvgPathCommand::MoveBy;
-            } else if x == 0.0 {
-                if last_command != SvgPathCommand::VerticalLineBy {
-                    svg_path.push('v');
-                    last_command = SvgPathCommand::VerticalLineBy;
-                } else if y >= 0.0 {
-                    svg_path.push(' ');
-                }
-                svg_path.push_str(&format!("{}", y));
-            } else if y == 0.0 {
-                if last_command != SvgPathCommand::HorizontalLineBy {
-                    svg_path.push('h');
-                    last_command = SvgPathCommand::HorizontalLineBy;
-                } else if x >= 0.0 {
-                    svg_path.push(' ');
-                }
-                svg_path.push_str(&format!("{}", x));
-            } else {
-                if last_command != SvgPathCommand::LineBy {
-                    svg_path.push('l');
-                    last_command = SvgPathCommand::LineBy;
-                } else if x >= 0.0 {
-                    svg_path.push(' ');
-                }
-                let space = if 0.0 < y { " " } else { "" };
-                svg_path.push_str(&format!("{}{}{}", x, space, y));
+        if !p.connected {
+            let space = if 0.0 < y { " " } else { "" };
+            svg_path.push_str(&format!("m{}{}{}", x, space, y));
+            last_command = SvgPathCommand::MoveBy;
+        } else if x == 0.0 {
+            if last_command != SvgPathCommand::VerticalLineBy {
+                svg_path.push('v');
+                last_command = SvgPathCommand::VerticalLineBy;
+            } else if y >= 0.0 {
+                svg_path.push(' ');
             }
+            svg_path.push_str(&format!("{}", y));
+        } else if y == 0.0 {
+            if last_command != SvgPathCommand::HorizontalLineBy {
+                svg_path.push('h');
+                last_command = SvgPathCommand::HorizontalLineBy;
+            } else if x >= 0.0 {
+                svg_path.push(' ');
+            }
+            svg_path.push_str(&format!("{}", x));
+        } else {
+            if last_command != SvgPathCommand::LineBy {
+                svg_path.push('l');
+                last_command = SvgPathCommand::LineBy;
+            } else if x >= 0.0 {
+                svg_path.push(' ');
+            }
+            let space = if 0.0 < y { " " } else { "" };
+            svg_path.push_str(&format!("{}{}{}", x, space, y));
         }
     }
 
-    svg_path
+    Some(svg_path)
 }
 
 fn get_trace_path(trace_points: &[TracePoint]) -> Option<Path> {
@@ -120,7 +125,7 @@ fn get_trace_path(trace_points: &[TracePoint]) -> Option<Path> {
     }
 
     let path_data =
-        points_to_svg_path(&trace_points.iter().map(Into::into).collect::<Vec<Point>>());
+        points_to_svg_path(&trace_points.iter().map(Into::into).collect::<Vec<Point>>())?;
     let trace = Path::new()
         .set("fill", "none")
         .set("stroke", "#fff")
@@ -158,15 +163,15 @@ fn calc_point(x: f32, y: f32) -> Point {
     }
 }
 
-fn get_color(set_type: &str) -> &'static str {
+fn get_color(set_type: &str) -> PyResult<&'static str> {
     match set_type {
-        "vw" => "#f00000",
-        "mw" => "#ffa500",
-        _ => "#000000",
+        "vw" => Ok("#f00000"),
+        "mw" => Ok("#ffa500"),
+        _ => Err(PyValueError::new_err("Invalid set type")),
     }
 }
 
-fn get_svg_subset(subset: &MapSubset) -> Box<dyn Node> {
+fn get_svg_subset(subset: &MapSubset) -> PyResult<Box<dyn Node>> {
     debug!("Adding subset: {:?}", subset);
     let points: Vec<Point> = subset
         .coordinates
@@ -183,20 +188,21 @@ fn get_svg_subset(subset: &MapSubset) -> Box<dyn Node> {
 
     if points.len() == 2 {
         // Only 2 points: use a Path
-        Box::new(
+        Ok(Box::new(
             Path::new()
-                .set("stroke", get_color(&subset.set_type))
+                .set("stroke", get_color(&subset.set_type)?)
                 .set("stroke-width", 1.5)
                 .set("stroke-dasharray", "4")
                 .set("vector-effect", "non-scaling-stroke")
-                .set("d", points_to_svg_path(&points)),
-        )
+                .set("d", points_to_svg_path(&points).unwrap()),
+        ))
     } else {
         // More than 2 points: use a Polygon
-        Box::new(
+        let color = get_color(&subset.set_type)?;
+        Ok(Box::new(
             Polygon::new()
-                .set("fill", format!("{}30", get_color(&subset.set_type)))
-                .set("stroke", get_color(&subset.set_type))
+                .set("fill", format!("{}30", color))
+                .set("stroke", color)
                 .set("stroke-width", 1.5)
                 .set("stroke-dasharray", "4")
                 .set("vector-effect", "non-scaling-stroke")
@@ -207,7 +213,7 @@ fn get_svg_subset(subset: &MapSubset) -> Box<dyn Node> {
                         .flat_map(|p| vec![p.x, p.y])
                         .collect::<Vec<f32>>(),
                 ),
-        )
+        ))
     }
 }
 
@@ -379,7 +385,7 @@ impl MapData {
         let mut document = Document::new().set("viewBox", viewbox).add(defs).add(image);
 
         for subset in subsets.iter() {
-            document.append(get_svg_subset(subset));
+            document.append(get_svg_subset(subset)?);
         }
         if let Some(trace) = get_trace_path(self.trace_points.as_slice()) {
             document.append(trace);
@@ -453,9 +459,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![TracePoint{x:16, y:256, connected:true}], "<path d=\"M16 256\" fill=\"none\" stroke=\"#fff\" stroke-linejoin=\"round\" stroke-width=\"1.5\" transform=\"scale(0.2-0.2)\" vector-effect=\"non-scaling-stroke\"/>")]
+    #[case(vec![TracePoint{x:16, y:256, connected:true},TracePoint{x:0, y:256, connected:true}], "<path d=\"M16 256h-16\" fill=\"none\" stroke=\"#fff\" stroke-linejoin=\"round\" stroke-width=\"1.5\" transform=\"scale(0.2-0.2)\" vector-effect=\"non-scaling-stroke\"/>")]
     #[case(vec![
-        TracePoint{x:-215, y:-70, connected:false},
+        TracePoint{x:-215, y:-70, connected:true},
         TracePoint{x:-215, y:-70, connected:true},
         TracePoint{x:-212, y:-73, connected:true},
         TracePoint{x:-213, y:-73, connected:true},
@@ -471,7 +477,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![Point{x:16.0, y:256.0, connected:true}], "M16 256")]
+    #[case(vec![Point{x:16.0, y:256.0, connected:true}], None)]
     #[case(vec![
         Point{x:-215.0, y:-70.0, connected:false},
         Point{x:-215.0, y:-70.0, connected:true},
@@ -482,9 +488,10 @@ mod tests {
         Point{x:-227.0, y:-70.0, connected:true},
         Point{x:-256.0, y:-69.0, connected:false},
         Point{x:-260.0, y:-80.0, connected:true},
-    ], "M-215-70l3-3h-1l-14 1v2m-29 1l-4-11")]
-    #[case(vec![Point{x:45.58, y:176.12, connected:true}, Point{x:18.78, y:175.94, connected:true}], "M45.58 176.12l-26.8-0.18")]
-    fn test_points_to_svg_path(#[case] points: Vec<Point>, #[case] expected: String) {
+    ], Some("M-215-70l3-3h-1l-14 1v2m-29 1l-4-11".to_string()))]
+    #[case(vec![Point{x:45.58, y:176.12, connected:true}, Point{x:18.78, y:175.94, connected:true}], Some("M45.58 176.12l-26.8-0.18".to_string()))]
+    #[case(vec![], None)]
+    fn test_points_to_svg_path(#[case] points: Vec<Point>, #[case] expected: Option<String>) {
         let trace = points_to_svg_path(&points);
         assert_eq!(trace, expected);
     }
@@ -509,7 +516,7 @@ mod tests {
     #[case(MapSubset{set_type:"mw".to_string(), coordinates:"[-442,2910,-442,982,1214,982,1214,2910]".to_string()}, "<polygon fill=\"#ffa50030\" points=\"-8.84 -58.2 -8.84 -19.64 24.28 -19.64 24.28 -58.2\" stroke=\"#ffa500\" stroke-dasharray=\"4\" stroke-width=\"1.5\" vector-effect=\"non-scaling-stroke\"/>")]
     #[case(MapSubset{set_type:"vw".to_string(), coordinates:"['12023', '1979', '12135', '-6720']".to_string()}, "<path d=\"M240.46-39.58l2.24 173.98\" stroke=\"#f00000\" stroke-dasharray=\"4\" stroke-width=\"1.5\" vector-effect=\"non-scaling-stroke\"/>")]
     fn test_get_svg_subset(#[case] subset: MapSubset, #[case] expected: String) {
-        let result = get_svg_subset(&subset).to_string();
+        let result = get_svg_subset(&subset).unwrap().to_string();
         assert_eq!(result, expected);
     }
 
@@ -525,5 +532,203 @@ mod tests {
     fn test_position_type_from_str_invalid() {
         let result = PositionType::from_str("invalid");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_color() {
+        assert_eq!(get_color("vw").unwrap(), "#f00000");
+        assert_eq!(get_color("mw").unwrap(), "#ffa500");
+        assert!(get_color("invalid").is_err());
+    }
+
+    #[test]
+    fn test_extract_trace_points_success() {
+        let input = "XQAABACvAAAAAAAAAEINQkt4BfqEvt9Pow7YU9KWRVBcSBosIDAOtACCicHy+vmfexxcutQUhqkAPQlBawOeXo/VSrOqF7yhdJ1JPICUs3IhIebU62Qego0vdk8oObiLh3VY/PVkqQyvR4dHxUDzMhX7HAguZVn3yC17+cQ18N4kaydN3LfSUtV/zejrBM4=";
+        let result = extract_trace_points(input.to_string()).unwrap();
+        let expected = vec![
+            TracePoint {
+                x: 0,
+                y: 1,
+                connected: false,
+            },
+            TracePoint {
+                x: -10,
+                y: 1,
+                connected: true,
+            },
+            TracePoint {
+                x: -7,
+                y: -8,
+                connected: true,
+            },
+            TracePoint {
+                x: 0,
+                y: -15,
+                connected: true,
+            },
+            TracePoint {
+                x: 6,
+                y: -23,
+                connected: true,
+            },
+            TracePoint {
+                x: 11,
+                y: -32,
+                connected: true,
+            },
+            TracePoint {
+                x: 21,
+                y: -30,
+                connected: true,
+            },
+            TracePoint {
+                x: 31,
+                y: -30,
+                connected: true,
+            },
+            TracePoint {
+                x: 40,
+                y: -34,
+                connected: true,
+            },
+            TracePoint {
+                x: 46,
+                y: -42,
+                connected: true,
+            },
+            TracePoint {
+                x: 53,
+                y: -51,
+                connected: true,
+            },
+            TracePoint {
+                x: 52,
+                y: -61,
+                connected: true,
+            },
+            TracePoint {
+                x: 48,
+                y: -70,
+                connected: true,
+            },
+            TracePoint {
+                x: 44,
+                y: -79,
+                connected: true,
+            },
+            TracePoint {
+                x: 34,
+                y: -83,
+                connected: true,
+            },
+            TracePoint {
+                x: 24,
+                y: -83,
+                connected: true,
+            },
+            TracePoint {
+                x: 14,
+                y: -82,
+                connected: true,
+            },
+            TracePoint {
+                x: 6,
+                y: -76,
+                connected: true,
+            },
+            TracePoint {
+                x: 0,
+                y: -68,
+                connected: true,
+            },
+            TracePoint {
+                x: -2,
+                y: -59,
+                connected: true,
+            },
+            TracePoint {
+                x: 0,
+                y: -48,
+                connected: true,
+            },
+            TracePoint {
+                x: 3,
+                y: -38,
+                connected: true,
+            },
+            TracePoint {
+                x: 11,
+                y: -32,
+                connected: true,
+            },
+            TracePoint {
+                x: 21,
+                y: -29,
+                connected: true,
+            },
+            TracePoint {
+                x: 21,
+                y: -19,
+                connected: true,
+            },
+            TracePoint {
+                x: 14,
+                y: -12,
+                connected: true,
+            },
+            TracePoint {
+                x: 5,
+                y: -7,
+                connected: true,
+            },
+            TracePoint {
+                x: 12,
+                y: -14,
+                connected: true,
+            },
+            TracePoint {
+                x: 21,
+                y: -18,
+                connected: true,
+            },
+            TracePoint {
+                x: 31,
+                y: -20,
+                connected: true,
+            },
+            TracePoint {
+                x: 41,
+                y: -20,
+                connected: true,
+            },
+            TracePoint {
+                x: 51,
+                y: -24,
+                connected: true,
+            },
+            TracePoint {
+                x: 58,
+                y: -31,
+                connected: true,
+            },
+            TracePoint {
+                x: 64,
+                y: -39,
+                connected: true,
+            },
+            TracePoint {
+                x: 70,
+                y: -47,
+                connected: true,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_process_trace_points_to_short() {
+        let input: Vec<u8> = vec![0x0, 0x0, 0x0, 0x0];
+        let result = process_trace_points(&input);
+        assert!(matches!(result, Err(e) if e.to_string() == "Invalid trace points length"));
     }
 }
