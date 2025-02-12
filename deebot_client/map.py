@@ -287,15 +287,14 @@ class MapPiece:
         self._crc32: int = MapPiece._NOT_INUSE_CRC32
         self._image: Image.Image | None = None
 
-    def crc32_indicates_update(self, crc32: str) -> bool:
+    def crc32_indicates_update(self, crc32: int) -> bool:
         """Return True if update is required."""
-        crc32_int = int(crc32)
-        if crc32_int == MapPiece._NOT_INUSE_CRC32:
-            self._crc32 = crc32_int
+        if crc32 == MapPiece._NOT_INUSE_CRC32:
+            self._crc32 = crc32
             self._image = None
             return False
 
-        return self._crc32 != crc32_int
+        return self._crc32 != crc32
 
     @property
     def in_use(self) -> bool:
