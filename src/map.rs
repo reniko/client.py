@@ -5,7 +5,11 @@ use super::util::decompress_base64_data;
 use base64::engine::general_purpose;
 use base64::Engine;
 use byteorder::{LittleEndian, ReadBytesExt};
+use crc32fast::Hasher;
+use image::{GenericImageView, GrayImage, Luma};
 use log::debug;
+use once_cell::sync::Lazy;
+use png::{BitDepth, ColorType, Compression, Encoder};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use svg::node::element::{
@@ -15,6 +19,30 @@ use svg::{Document, Node};
 
 const PIXEL_WIDTH: f32 = 50.0;
 const ROUND_TO_DIGITS: usize = 3;
+const NOT_INUSE_CRC32: u32 = 1295764014;
+const DEFAULT_MAP_BACKGROUND: &[u8; 3] = &[0xba, 0xda, 0xff];
+const MAP_TRANSPARENT_INDEX: u8 = 0;
+const MAP_FLOOR_INDEX: u8 = 1;
+static MAP_IMAGE_PALETTE: Lazy<Vec<u8>> = Lazy::new(|| {
+    let mut palette = Vec::new();
+    palette.extend_from_slice(&[0x00, 0x00, 0x00]); // Transparent
+    palette.extend_from_slice(DEFAULT_MAP_BACKGROUND); // Floor
+    palette.extend_from_slice(&[0x4e, 0x96, 0xe2]); // Wall
+    palette.extend_from_slice(&[0x1a, 0x81, 0xed]); // Carpet
+    palette.extend_from_slice(&[0xde, 0xe9, 0xfb]); // Not scanned space
+    palette.extend_from_slice(&[0xed, 0xf3, 0xfb]); // Possible obstacle
+    palette
+});
+static MAP_IMAGE_PALETTE_LEN: Lazy<usize> = Lazy::new(|| MAP_IMAGE_PALETTE.len() / 3);
+static MAP_IMAGE_PALETTE_TRANSPARENCY: Lazy<Vec<u8>> = Lazy::new(|| {
+    // 0 -> Transparent, 255 -> Fully opaque
+    let mut transparency = vec![0u8];
+    transparency.resize(*MAP_IMAGE_PALETTE_LEN, 255);
+    transparency
+});
+const MAP_PIECE_SIZE: u16 = 100;
+const MAP_MAX_SIZE: u16 = 8 * MAP_PIECE_SIZE;
+const MAP_OFFSET: i16 = MAP_MAX_SIZE as i16 / 2;
 
 /// Trace point
 #[derive(Debug, PartialEq)]
@@ -271,11 +299,11 @@ struct Position {
     y: i32,
 }
 
-fn calc_point_in_viewbox(x: i32, y: i32, viewbox: (f32, f32, f32, f32)) -> Point {
+fn calc_point_in_viewbox(x: i32, y: i32, viewbox: &ViewBox) -> Point {
     let point = calc_point(x as f32, y as f32);
     Point {
-        x: point.x.max(viewbox.0).min(viewbox.0 + viewbox.2),
-        y: point.y.max(viewbox.1).min(viewbox.1 + viewbox.3),
+        x: point.x.max(viewbox.min_x as f32).min(viewbox.max_x as f32),
+        y: point.y.max(viewbox.min_y as f32).min(viewbox.max_y as f32),
         connected: false,
     }
 }
@@ -291,6 +319,7 @@ struct MapSubset {
 #[pyclass]
 struct MapData {
     trace_points: Vec<TracePoint>,
+    map_pieces: [MapPiece; 64],
 }
 
 #[pymethods]
@@ -299,6 +328,7 @@ impl MapData {
     fn new() -> Self {
         MapData {
             trace_points: Vec::new(),
+            map_pieces: core::array::from_fn(|_| MapPiece::new()),
         }
     }
 
@@ -313,13 +343,31 @@ impl MapData {
         self.trace_points.clear();
     }
 
+    fn update_map_piece(&mut self, index: usize, base64_data: String) -> Result<bool, PyErr> {
+        if index >= self.map_pieces.len() {
+            return Err(PyValueError::new_err("Index out of bounds"));
+        }
+        self.map_pieces[index]
+            .update_points(base64_data)
+            .map_err(|err| PyValueError::new_err(err.to_string()))
+    }
+
+    fn map_piece_crc32_indicates_update(
+        &mut self,
+        index: usize,
+        crc32: u32,
+    ) -> Result<bool, PyErr> {
+        if index >= self.map_pieces.len() {
+            return Err(PyValueError::new_err("Index out of bounds"));
+        }
+        Ok(self.map_pieces[index].crc32_indicates_update(crc32))
+    }
+
     fn generate_svg(
         &self,
-        viewbox: (f32, f32, f32, f32),
-        image: Vec<u8>,
         subsets: Vec<MapSubset>,
         positions: Vec<Position>,
-    ) -> PyResult<String> {
+    ) -> PyResult<Option<String>> {
         let defs = Definitions::new()
             .add(
                 // Gradient used by Bot icon
@@ -373,16 +421,25 @@ impl MapData {
             );
 
         // Add image
-        let base64_image = general_purpose::STANDARD.encode(&image);
+        let (base64_image, viewbox) = match self
+            .generate_background_image()
+            .map_err(|err| PyValueError::new_err(err.to_string()))?
+        {
+            Some(data) => data,
+            None => return Ok(None),
+        };
         let image = Image::new()
-            .set("x", viewbox.0)
-            .set("y", viewbox.1)
-            .set("width", viewbox.2)
-            .set("height", viewbox.3)
+            .set("x", viewbox.min_x)
+            .set("y", viewbox.min_y)
+            .set("width", viewbox.width)
+            .set("height", viewbox.height)
             .set("style", "image-rendering: pixelated")
             .set("href", format!("data:image/png;base64,{}", base64_image));
 
-        let mut document = Document::new().set("viewBox", viewbox).add(defs).add(image);
+        let mut document = Document::new()
+            .set("viewBox", viewbox.to_svg_viewbox())
+            .add(defs)
+            .add(image);
 
         for subset in subsets.iter() {
             document.append(get_svg_subset(subset)?);
@@ -390,15 +447,137 @@ impl MapData {
         if let Some(trace) = get_trace_path(self.trace_points.as_slice()) {
             document.append(trace);
         }
-        for position in get_svg_positions(positions, viewbox) {
+        for position in get_svg_positions(positions, &viewbox) {
             document.append(position);
         }
 
-        Ok(document.to_string().replace("\n", ""))
+        Ok(Some(document.to_string().replace("\n", "")))
     }
 }
 
-fn get_svg_positions(positions: Vec<Position>, viewbox: (f32, f32, f32, f32)) -> Vec<Use> {
+#[derive(Debug)]
+struct ViewBox {
+    min_x: i16,
+    min_y: i16,
+    max_x: i16,
+    max_y: i16,
+    width: u16,
+    height: u16,
+}
+
+impl ViewBox {
+    fn new(min_x: u16, min_y: u16, max_x: u16, max_y: u16) -> Self {
+        let new_min_x = min_x as i16 - MAP_OFFSET;
+        let new_min_y = min_y as i16 - MAP_OFFSET;
+        let width = max_x - min_x + 1;
+        let height = max_y - min_y + 1;
+        ViewBox {
+            min_x: new_min_x,
+            min_y: new_min_y,
+            max_x: new_min_x + width as i16,
+            max_y: new_min_y + height as i16,
+            width,
+            height,
+        }
+    }
+
+    fn to_svg_viewbox(&self) -> String {
+        format!(
+            "{} {} {} {}",
+            self.min_x, self.min_y, self.width, self.height
+        )
+    }
+}
+
+type ImageGenrationType = Option<(String, ViewBox)>;
+
+impl MapData {
+    fn generate_background_image(&self) -> Result<ImageGenrationType, Box<dyn std::error::Error>> {
+        let mut image = GrayImage::new(MAP_MAX_SIZE.into(), MAP_MAX_SIZE.into());
+        let mut min_x = u16::MAX;
+        let mut min_y = u16::MAX;
+        let mut max_x = 0u16;
+        let mut max_y = 0u16;
+
+        self.map_pieces.iter().enumerate().for_each(|(i, piece)| {
+            // Order of the pieces is from bottom-left to top-right (column by column)
+            let piece_x = (i as u16 / 8) * MAP_PIECE_SIZE;
+            let piece_y = MAP_MAX_SIZE - (((i as u16 % 8) + 1) * MAP_PIECE_SIZE);
+
+            if let Some(pixels) = piece.pixels_indexed() {
+                debug!("Adding piece at {} ({}, {})", i, piece_x, piece_y);
+
+                pixels.iter().enumerate().for_each(|(j, pixel_idx)| {
+                    // Order of the pixels is from top-left to bottom-right (row by row)
+
+                    // Check if the pixel is not fully transparent (alpha > 0)
+                    if pixel_idx != &MAP_TRANSPARENT_INDEX {
+                        let pixel_x = j as u16 % MAP_PIECE_SIZE;
+                        let pixel_y = j as u16 / MAP_PIECE_SIZE;
+
+                        // We need to rotate the image 90 degrees counterclockwise
+                        let new_x = piece_x + pixel_y;
+                        let new_y = piece_y + MAP_PIECE_SIZE - 1 - pixel_x;
+
+                        // Newer bots will return a different pixel index per room
+                        // mapping all to the floor color
+                        let pixel = if *pixel_idx > *MAP_IMAGE_PALETTE_LEN as u8 {
+                            MAP_FLOOR_INDEX
+                        } else {
+                            *pixel_idx
+                        };
+
+                        image.put_pixel(new_x.into(), new_y.into(), Luma([pixel]));
+                        min_x = min_x.min(new_x);
+                        min_y = min_y.min(new_y);
+                        max_x = max_x.max(new_x);
+                        max_y = max_y.max(new_y);
+                    }
+                });
+            }
+        });
+
+        if min_x == u16::MAX || min_y == u16::MAX || max_x == 0 || max_y == 0 {
+            return Ok(None);
+        }
+
+        let view_box = ViewBox::new(min_x, min_y, max_x, max_y);
+
+        debug!("Image bounding box: {:?}", view_box);
+
+        // Crop the image to the actual size
+        image = image
+            .view(
+                min_x.into(),
+                min_y.into(),
+                view_box.width.into(),
+                view_box.height.into(),
+            )
+            .to_image();
+
+        // Convert the image to PNG format in memory and encode it as base64
+        let mut png_data = Vec::new();
+        {
+            let mut encoder = Encoder::new(&mut png_data, image.width(), image.height());
+
+            encoder.set_compression(Compression::Best);
+            encoder.set_color(ColorType::Indexed);
+            encoder.set_depth(BitDepth::Eight);
+            encoder.set_palette(MAP_IMAGE_PALETTE.clone());
+            encoder.set_trns(MAP_IMAGE_PALETTE_TRANSPARENCY.clone()); // Add transparency chunk
+
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(image.as_ref()).unwrap();
+        }
+
+        Ok(Some((
+            general_purpose::STANDARD.encode(&png_data),
+            view_box,
+        )))
+    }
+}
+
+fn get_svg_positions(positions: Vec<Position>, viewbox: &ViewBox) -> Vec<Use> {
     let mut positions: Vec<&Position> = positions.iter().to_owned().collect();
     positions.sort_by_key(|d| -> i32 { d.position_type.order() });
     debug!("Adding positions: {:?}", positions);
@@ -418,6 +597,54 @@ fn get_svg_positions(positions: Vec<Position>, viewbox: (f32, f32, f32, f32)) ->
     svg_positions
 }
 
+struct MapPiece {
+    crc32: u32,
+    pixels_indexed: Option<Vec<u8>>,
+}
+
+impl MapPiece {
+    fn new() -> Self {
+        MapPiece {
+            crc32: NOT_INUSE_CRC32,
+            pixels_indexed: None,
+        }
+    }
+
+    fn crc32_indicates_update(&mut self, crc32: u32) -> bool {
+        if crc32 == NOT_INUSE_CRC32 {
+            self.crc32 = crc32;
+            self.pixels_indexed = None;
+            return false;
+        }
+        self.crc32 != crc32
+    }
+
+    fn in_use(&self) -> bool {
+        self.crc32 != NOT_INUSE_CRC32
+    }
+
+    fn pixels_indexed(&self) -> Option<&Vec<u8>> {
+        self.pixels_indexed.as_ref()
+    }
+
+    fn update_points(&mut self, base64_data: String) -> Result<bool, Box<dyn std::error::Error>> {
+        let decoded = decompress_base64_data(base64_data)?;
+        let old_crc32 = self.crc32;
+
+        let mut hasher = Hasher::new();
+        hasher.update(&decoded);
+        self.crc32 = hasher.finalize();
+
+        if self.in_use() {
+            self.pixels_indexed = Some(decoded);
+        } else {
+            self.pixels_indexed = None;
+        }
+
+        Ok(self.crc32 != old_crc32)
+    }
+}
+
 pub fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MapData>()?;
     m.add_class::<PositionType>()?;
@@ -429,6 +656,30 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    fn tuple_2_view_box(tuple: (i16, i16, u16, u16)) -> ViewBox {
+        ViewBox {
+            min_x: tuple.0,
+            min_y: tuple.1,
+            max_x: tuple.0 + tuple.2 as i16,
+            max_y: tuple.1 + tuple.3 as i16,
+            width: tuple.2,
+            height: tuple.3,
+        }
+    }
+
+    #[rstest]
+    #[case((-100, -100, 200, 150))]
+    #[case((0, 0, 1000, 1000))]
+    #[case( (0, 0, 1000, 1000))]
+    #[case( (-500, -500, 1000, 1000))]
+    fn test_tuple_2_view_box(#[case] input: (i16, i16, u16, u16)) {
+        let result = tuple_2_view_box(input);
+        assert_eq!(
+            input,
+            (result.min_x, result.min_y, result.width, result.height,)
+        );
+    }
+
     #[rstest]
     #[case(5000.0, 0.0, Point { x:100.0, y:0.0, connected:true })]
     #[case(20010.0, -29900.0, Point { x: 400.2, y: 598.0, connected:true  })]
@@ -439,17 +690,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case(100, 100, (-100.0, -100.0, 200.0, 150.0), Point { x: 2.0, y: -2.0, connected: false })]
-    #[case(-64000, -64000, (0.0, 0.0, 1000.0, 1000.0), Point { x: 0.0, y: 1000.0, connected: false })]
-    #[case(64000, 64000, (0.0, 0.0, 1000.0, 1000.0), Point { x: 1000.0, y: 0.0, connected: false })]
-    #[case(0, 1000, (-500.0, -500.0, 1000.0, 1000.0), Point { x: 0.0, y: -20.0, connected: false })]
+    #[case(100, 100, (-100, -100, 200, 150), Point { x: 2.0, y: -2.0, connected: false })]
+    #[case(-64000, -64000, (0, 0, 1000, 1000), Point { x: 0.0, y: 1000.0, connected: false })]
+    #[case(64000, 64000, (0, 0, 1000, 1000), Point { x: 1000.0, y: 0.0, connected: false })]
+    #[case(0, 1000, (-500, -500, 1000, 1000), Point { x: 0.0, y: -20.0, connected: false })]
     fn test_calc_point_in_viewbox(
         #[case] x: i32,
         #[case] y: i32,
-        #[case] viewbox: (f32, f32, f32, f32),
+        #[case] viewbox: (i16, i16, u16, u16),
         #[case] expected: Point,
     ) {
-        let result = calc_point_in_viewbox(x, y, viewbox);
+        let result = calc_point_in_viewbox(x, y, &tuple_2_view_box(viewbox));
         assert_eq!(result, expected);
     }
 
@@ -502,8 +753,8 @@ mod tests {
     #[case(vec![Position{position_type:PositionType::Charger, x:25000, y:55000}, Position{position_type:PositionType::Deebot, x:-5000, y:-50000}], "<use href=\"#d\" x=\"-100\" y=\"500\"/><use href=\"#c\" x=\"500\" y=\"-500\"/>")]
     #[case(vec![Position{position_type:PositionType::Deebot, x:-10000, y:10000}, Position{position_type:PositionType::Charger, x:50000, y:5000}], "<use href=\"#d\" x=\"-200\" y=\"-200\"/><use href=\"#c\" x=\"500\" y=\"-100\"/>")]
     fn test_get_svg_positions(#[case] positions: Vec<Position>, #[case] expected: String) {
-        let viewbox = (-500.0, -500.0, 1000.0, 1000.0);
-        let result = get_svg_positions(positions, viewbox)
+        let viewbox = (-500, -500, 1000, 1000);
+        let result = get_svg_positions(positions, &tuple_2_view_box(viewbox))
             .iter()
             .map(|u| u.to_string())
             .collect::<Vec<String>>()
@@ -730,5 +981,20 @@ mod tests {
         let input: Vec<u8> = vec![0x0, 0x0, 0x0, 0x0];
         let result = process_trace_points(&input);
         assert!(matches!(result, Err(e) if e.to_string() == "Invalid trace points length"));
+    }
+
+    #[test]
+    fn test_update_map_piece_of_empty_piece() {
+        let data = String::from(
+            "XQAABAAQJwAAAABv/f//o7f/Rz5IFXI5YVG4kijmo4YH+e7kHoLTL8U6PAFLsX7Jhrz0KgA=",
+        );
+        let mut map_piece = MapPiece {
+            crc32: 0,
+            pixels_indexed: None,
+        };
+        let update = map_piece.update_points(data).unwrap();
+        assert!(update);
+        assert_eq!(map_piece.crc32, NOT_INUSE_CRC32);
+        assert!(map_piece.pixels_indexed.is_none());
     }
 }
