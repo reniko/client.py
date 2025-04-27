@@ -10,8 +10,8 @@ from .battery import GetBatteryInfo
 from .charge import Charge
 from .charge_state import GetChargeState
 from .clean_logs import GetCleanLogs
+from .clean_speed import GetCleanSpeed, SetCleanSpeed
 from .error import GetError
-from .fan_speed import GetFanSpeed
 from .life_span import GetLifeSpan
 from .play_sound import PlaySound
 from .pos import GetChargerPos, GetPos
@@ -26,24 +26,39 @@ __all__ = [
     "GetChargeState",
     "GetChargerPos",
     "GetCleanLogs",
+    "GetCleanSpeed",
     "GetCleanSum",
     "GetError",
-    "GetFanSpeed",
     "GetLifeSpan",
     "GetPos",
     "PlaySound",
+    "SetCleanSpeed",
 ]
 
 # fmt: off
 # ordered by file asc
 _COMMANDS: list[type[XmlCommand]] = [
     GetBatteryInfo,
-    GetChargerPos,
+
+    GetChargeState,
+
+    Charge,
+
     GetCleanLogs,
+
+    GetCleanSpeed,
+    SetCleanSpeed,
+
     GetError,
+
     GetLifeSpan,
-    GetPos,
+
     PlaySound,
+
+    GetChargerPos,
+    GetPos,
+
+    GetCleanSum
 ]
 # fmt: on
 
