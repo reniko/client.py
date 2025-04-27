@@ -9,6 +9,7 @@ from deebot_client.command import Command, CommandMqttP2P
 from .battery import GetBatteryInfo
 from .charge import Charge
 from .charge_state import GetChargeState
+from .clean import Clean, CleanArea, GetCleanState
 from .clean_logs import GetCleanLogs
 from .clean_speed import GetCleanSpeed, SetCleanSpeed
 from .error import GetError
@@ -23,11 +24,14 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Charge",
+    "Clean",
+    "CleanArea",
     "GetBatteryInfo",
     "GetChargeState",
     "GetChargerPos",
     "GetCleanLogs",
     "GetCleanSpeed",
+    "GetCleanState",
     "GetCleanSum",
     "GetError",
     "GetLifeSpan",
@@ -50,6 +54,10 @@ _COMMANDS: list[type[XmlCommand]] = [
     GetChargeState,
 
     Charge,
+
+    Clean,
+    CleanArea,
+    GetCleanState,
 
     GetCleanLogs,
 
