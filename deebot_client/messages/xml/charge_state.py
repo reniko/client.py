@@ -37,16 +37,20 @@ class ChargeState(XmlMessage):
         if (charge := xml.find("charge")) is not None and (
             charge_type := charge.attrib["type"]
         ) is not None:
+            status: None | State = None
             match charge_type.lower():
                 case "slotcharging" | "slot_charging" | "wirecharging":
                     status = State.DOCKED
                 case "idle":
-                    status = State.IDLE
+                    # Bot reports IDLE while not on the charger (e.g. while cleaning)
+                    # We ignore this state since it will conflict with the actual cleaning state
+                    pass
                 case "going":
                     status = State.RETURNING
                 case _:
                     status = State.ERROR
-            event_bus.notify(StateEvent(status))
-            return HandlingResult.success()
+            if status:
+                event_bus.notify(StateEvent(status))
+                return HandlingResult.success()
 
         return HandlingResult.analyse()
