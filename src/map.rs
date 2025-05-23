@@ -7,7 +7,7 @@ use base64::Engine;
 use byteorder::{LittleEndian, ReadBytesExt};
 use crc32fast::Hasher;
 use image::{GenericImageView, GrayImage, Luma};
-use log::debug;
+use log::{debug, error};
 use once_cell::sync::Lazy;
 use png::{BitDepth, ColorType, Compression, Encoder};
 use pyo3::exceptions::PyValueError;
@@ -68,7 +68,7 @@ fn process_trace_points(trace_points: &[u8]) -> Result<Vec<TracePoint>, Box<dyn 
         .collect()
 }
 
-fn extract_trace_points(value: String) -> Result<Vec<TracePoint>, Box<dyn Error>> {
+fn extract_trace_points(value: &str) -> Result<Vec<TracePoint>, Box<dyn Error>> {
     let decompressed_data = decompress_base64_data(value)?;
     process_trace_points(&decompressed_data)
 }
@@ -333,9 +333,11 @@ impl MapData {
     }
 
     fn add_trace_points(&mut self, value: String) -> Result<(), PyErr> {
-        self.trace_points.extend(
-            extract_trace_points(value).map_err(|err| PyValueError::new_err(err.to_string()))?,
-        );
+        self.trace_points
+            .extend(extract_trace_points(&value).map_err(|err| {
+                error!("Failed to extract trace points: {};value:{}", err, value);
+                PyValueError::new_err(err.to_string())
+            })?);
         Ok(())
     }
 
@@ -345,11 +347,21 @@ impl MapData {
 
     fn update_map_piece(&mut self, index: usize, base64_data: String) -> Result<bool, PyErr> {
         if index >= self.map_pieces.len() {
+            error!(
+                "Index out of bounds; index:{}, base64_data:{}",
+                index, base64_data
+            );
             return Err(PyValueError::new_err("Index out of bounds"));
         }
         self.map_pieces[index]
-            .update_points(base64_data)
-            .map_err(|err| PyValueError::new_err(err.to_string()))
+            .update_points(&base64_data)
+            .map_err(|err| {
+                error!(
+                    "Failed to update map piece: {}; index:{}, base64_data:{}",
+                    err, index, base64_data,
+                );
+                PyValueError::new_err(err.to_string())
+            })
     }
 
     fn map_piece_crc32_indicates_update(
@@ -358,6 +370,7 @@ impl MapData {
         crc32: u32,
     ) -> Result<bool, PyErr> {
         if index >= self.map_pieces.len() {
+            error!("Index out of bounds; index:{}, crc32:{}", index, crc32);
             return Err(PyValueError::new_err("Index out of bounds"));
         }
         Ok(self.map_pieces[index].crc32_indicates_update(crc32))
@@ -627,7 +640,7 @@ impl MapPiece {
         self.pixels_indexed.as_ref()
     }
 
-    fn update_points(&mut self, base64_data: String) -> Result<bool, Box<dyn std::error::Error>> {
+    fn update_points(&mut self, base64_data: &str) -> Result<bool, Box<dyn std::error::Error>> {
         let decoded = decompress_base64_data(base64_data)?;
         let old_crc32 = self.crc32;
 
@@ -795,7 +808,7 @@ mod tests {
     #[test]
     fn test_extract_trace_points_success() {
         let input = "XQAABACvAAAAAAAAAEINQkt4BfqEvt9Pow7YU9KWRVBcSBosIDAOtACCicHy+vmfexxcutQUhqkAPQlBawOeXo/VSrOqF7yhdJ1JPICUs3IhIebU62Qego0vdk8oObiLh3VY/PVkqQyvR4dHxUDzMhX7HAguZVn3yC17+cQ18N4kaydN3LfSUtV/zejrBM4=";
-        let result = extract_trace_points(input.to_string()).unwrap();
+        let result = extract_trace_points(input).unwrap();
         let expected = vec![
             TracePoint {
                 x: 0,
@@ -985,9 +998,7 @@ mod tests {
 
     #[test]
     fn test_update_map_piece_of_empty_piece() {
-        let data = String::from(
-            "XQAABAAQJwAAAABv/f//o7f/Rz5IFXI5YVG4kijmo4YH+e7kHoLTL8U6PAFLsX7Jhrz0KgA=",
-        );
+        let data = "XQAABAAQJwAAAABv/f//o7f/Rz5IFXI5YVG4kijmo4YH+e7kHoLTL8U6PAFLsX7Jhrz0KgA=";
         let mut map_piece = MapPiece {
             crc32: 0,
             pixels_indexed: None,
