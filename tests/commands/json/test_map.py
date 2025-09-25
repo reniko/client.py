@@ -485,7 +485,81 @@ async def test_getMapSetV2_rooms() -> None:
     )
 
 
-async def test_getMapSetV2_virtual_walls() -> None:
+@pytest.mark.parametrize(
+    ("data", "expected_walls"),
+    [
+        (
+            {
+                "subsets": "XQAABADHAAAAAC2WwEHwYhHX3vWwDK80QCnaQU0mwUd9Vk34ub6OxzOk6kdFfbFvpVp4iIlKisAvp0MznQNYEZ8koxFHnO+iM44GUKgujGQKgzl0bScbQgaon1jI3eyCRikWlkmrbwA=",
+                "infoSize": 199,
+            },
+            [
+                {
+                    "mssid": 0,
+                    "coordinates": str(
+                        [
+                            "-5195",
+                            "-1059",
+                            "-5195",
+                            "-37",
+                            "-5806",
+                            "-37",
+                            "-5806",
+                            "-1059",
+                        ]
+                    ),
+                },
+                {
+                    "mssid": 1,
+                    "coordinates": str(
+                        [
+                            "-7959",
+                            "220",
+                            "-7959",
+                            "1083",
+                            "-9254",
+                            "1083",
+                            "-9254",
+                            "220",
+                        ]
+                    ),
+                },
+                {"mssid": 2, "coordinates": str(["-9437", "347", "-5387", "410"])},
+                {"mssid": 3, "coordinates": str(["-5667", "317", "-4888", "-56"])},
+            ],
+        ),
+        (
+            {
+                "subsets": "KLUv/SBvBQIAIoQLD7ClOUgeYW23kLUHq0+mKqXciplXrVfzUtWcCMuwoGY+xF3QANDcaNjMaR4mJAUAMVIPfD2qwcr0iTHmGA==",
+                "infoSize": 111,
+            },
+            [
+                {
+                    "mssid": 0,
+                    "coordinates": str(
+                        [
+                            "-4814",
+                            "12059",
+                            "-4814",
+                            "7768",
+                            "-3948",
+                            "7768",
+                            "-3948",
+                            "12059",
+                        ]
+                    ),
+                },
+                {
+                    "mssid": 1,
+                    "coordinates": str(["3315", "3754", "3353", "-655"]),
+                },
+            ],
+        ),
+    ],
+)
+async def test_getMapSetV2_virtual_walls(
+    data: dict[str, Any], expected_walls: list[dict[str, str | int]]
+) -> None:
     mid = "199390082"
     set_type = MapSetType.VIRTUAL_WALLS
     json, firmware_event = get_request_json(
@@ -496,28 +570,10 @@ async def test_getMapSetV2_virtual_walls() -> None:
                 "batid": "gheijg",
                 "serial": 1,
                 "index": 1,
-                "subsets": "XQAABADHAAAAAC2WwEHwYhHX3vWwDK80QCnaQU0mwUd9Vk34ub6OxzOk6kdFfbFvpVp4iIlKisAvp0MznQNYEZ8koxFHnO+iM44GUKgujGQKgzl0bScbQgaon1jI3eyCRikWlkmrbwA=",
-                "infoSize": 199,
             }
+            | data
         )
     )
-
-    expected_walls: list[dict[str, str | int]] = [
-        {
-            "mssid": 0,
-            "coordinates": str(
-                ["-5195", "-1059", "-5195", "-37", "-5806", "-37", "-5806", "-1059"]
-            ),
-        },
-        {
-            "mssid": 1,
-            "coordinates": str(
-                ["-7959", "220", "-7959", "1083", "-9254", "1083", "-9254", "220"]
-            ),
-        },
-        {"mssid": 2, "coordinates": str(["-9437", "347", "-5387", "410"])},
-        {"mssid": 3, "coordinates": str(["-5667", "317", "-4888", "-56"])},
-    ]
 
     await assert_command(
         GetMapSetV2(mid, set_type),
