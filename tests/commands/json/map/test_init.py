@@ -13,13 +13,16 @@ from deebot_client.commands.json import (
 )
 from deebot_client.commands.json.map import GetMapSetV2
 from deebot_client.events import (
+    Event,
     FirmwareEvent,
     MapSetEvent,
     MapSetType,
     MapSubsetEvent,
     MapTraceEvent,
+    RoomsEvent,
 )
 from deebot_client.message import HandlingState
+from deebot_client.models import Room
 from tests.commands.json import assert_command
 from tests.helpers import get_request_json, get_success_body
 
@@ -226,33 +229,131 @@ async def test_getMapSet() -> None:
     )
 
 
-async def test_getMapSetV2_no_mop_zones() -> None:
-    mid = "199390082"
-    set_type = MapSetType.NO_MOP_ZONES
-    json, firmware_event = get_request_json(
-        get_success_body(
+@pytest.mark.parametrize(
+    ("map_id", "set_type", "response_data", "expected_events"),
+    [
+        (
+            "1132127808",
+            MapSetType.VIRTUAL_WALLS,
             {
-                "type": set_type,
-                "mid": mid,
+                "type": "vw",
+                "mid": "1132127808",
+                "batid": "lohgbd",
+                "serial": 1,
+                "index": 1,
+                "subsets": "XQAABABKAAAAAC2WwEHwYhHX6tw2FeZC6xrq6vMnCbIHn24XWkCfMo5aBq/u/ucF6zdYzFkR6WdJiSWdWFww2d2gAA==",
+                "infoSize": 74,
+            },
+            [
+                MapSubsetEvent(
+                    0,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['12023', '1979', '12135', '-6720']",
+                ),
+                MapSubsetEvent(
+                    1,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['2120', '-4581', '2106', '-6271']",
+                ),
+                MapSetEvent(MapSetType.VIRTUAL_WALLS, [0, 1]),
+            ],
+        ),
+        (
+            "199390082",
+            MapSetType.NO_MOP_ZONES,
+            {
+                "type": "mw",
+                "mid": "199390082",
                 "batid": "fbfebf",
                 "serial": 1,
                 "index": 1,
                 "subsets": "XQAABABBAAAAAC2WwEIwUhHX3vfFDfs1H1PUqtdWgakwVnMBz3Bb3yaoE5OYkdYA",
                 "infoSize": 65,
-            }
-        )
-    )
-    await assert_command(
-        GetMapSetV2(mid, set_type),
-        json,
-        (
-            firmware_event,
-            MapSubsetEvent(
-                4,
-                set_type,
-                str(["-6217", "3919", "-6217", "231", "-2642", "231", "-2642", "3919"]),
-            ),
+            },
+            [
+                MapSubsetEvent(
+                    4,
+                    MapSetType.NO_MOP_ZONES,
+                    "['-6217', '3919', '-6217', '231', '-2642', '231', '-2642', '3919']",
+                ),
+                MapSetEvent(MapSetType.NO_MOP_ZONES, [4]),
+            ],
         ),
+        (
+            "199390082",
+            MapSetType.VIRTUAL_WALLS,
+            {
+                "type": "vw",
+                "mid": "199390082",
+                "batid": "fbfebf",
+                "serial": 1,
+                "index": 1,
+                "subsets": "XQAABADHAAAAAC2WwEHwYhHX3vWwDK80QCnaQU0mwUd9Vk34ub6OxzOk6kdFfbFvpVp4iIlKisAvp0MznQNYEZ8koxFHnO+iM44GUKgujGQKgzl0bScbQgaon1jI3eyCRikWlkmrbwA=",
+                "infoSize": 199,
+            },
+            [
+                MapSubsetEvent(
+                    0,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['-5195', '-1059', '-5195', '-37', '-5806', '-37', '-5806', '-1059']",
+                ),
+                MapSubsetEvent(
+                    1,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['-7959', '220', '-7959', '1083', '-9254', '1083', '-9254', '220']",
+                ),
+                MapSubsetEvent(
+                    2,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['-9437', '347', '-5387', '410']",
+                ),
+                MapSubsetEvent(
+                    3,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['-5667', '317', '-4888', '-56']",
+                ),
+                MapSetEvent(MapSetType.VIRTUAL_WALLS, [0, 1, 2, 3]),
+            ],
+        ),
+        (
+            "199390082",
+            MapSetType.VIRTUAL_WALLS,
+            {
+                "type": "vw",
+                "mid": "199390082",
+                "batid": "fbfebf",
+                "serial": 1,
+                "index": 1,
+                "subsets": "KLUv/SBvBQIAIoQLD7ClOUgeYW23kLUHq0+mKqXciplXrVfzUtWcCMuwoGY+xF3QANDcaNjMaR4mJAUAMVIPfD2qwcr0iTHmGA==",
+                "infoSize": 111,
+            },
+            [
+                MapSubsetEvent(
+                    0,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['-4814', '12059', '-4814', '7768', '-3948', '7768', '-3948', '12059']",
+                ),
+                MapSubsetEvent(
+                    1,
+                    MapSetType.VIRTUAL_WALLS,
+                    "['3315', '3754', '3353', '-655']",
+                ),
+                MapSetEvent(MapSetType.VIRTUAL_WALLS, [0, 1]),
+            ],
+        ),
+    ],
+)
+async def test_getMapSetV2(
+    map_id: str,
+    set_type: MapSetType,
+    response_data: dict[str, Any],
+    expected_events: list[Event],
+) -> None:
+    json, firmware_event = get_request_json(get_success_body(response_data))
+    await assert_command(
+        GetMapSetV2(map_id, set_type),
+        json,
+        (firmware_event, *expected_events),
     )
 
 
@@ -315,106 +416,50 @@ async def test_getMapSetV2_rooms() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("data", "expected_walls"),
-    [
-        (
-            {
-                "subsets": "XQAABADHAAAAAC2WwEHwYhHX3vWwDK80QCnaQU0mwUd9Vk34ub6OxzOk6kdFfbFvpVp4iIlKisAvp0MznQNYEZ8koxFHnO+iM44GUKgujGQKgzl0bScbQgaon1jI3eyCRikWlkmrbwA=",
-                "infoSize": 199,
-            },
-            [
-                {
-                    "mssid": 0,
-                    "coordinates": str(
-                        [
-                            "-5195",
-                            "-1059",
-                            "-5195",
-                            "-37",
-                            "-5806",
-                            "-37",
-                            "-5806",
-                            "-1059",
-                        ]
-                    ),
-                },
-                {
-                    "mssid": 1,
-                    "coordinates": str(
-                        [
-                            "-7959",
-                            "220",
-                            "-7959",
-                            "1083",
-                            "-9254",
-                            "1083",
-                            "-9254",
-                            "220",
-                        ]
-                    ),
-                },
-                {"mssid": 2, "coordinates": str(["-9437", "347", "-5387", "410"])},
-                {"mssid": 3, "coordinates": str(["-5667", "317", "-4888", "-56"])},
-            ],
-        ),
-        (
-            {
-                "subsets": "KLUv/SBvBQIAIoQLD7ClOUgeYW23kLUHq0+mKqXciplXrVfzUtWcCMuwoGY+xF3QANDcaNjMaR4mJAUAMVIPfD2qwcr0iTHmGA==",
-                "infoSize": 111,
-            },
-            [
-                {
-                    "mssid": 0,
-                    "coordinates": str(
-                        [
-                            "-4814",
-                            "12059",
-                            "-4814",
-                            "7768",
-                            "-3948",
-                            "7768",
-                            "-3948",
-                            "12059",
-                        ]
-                    ),
-                },
-                {
-                    "mssid": 1,
-                    "coordinates": str(["3315", "3754", "3353", "-655"]),
-                },
-            ],
-        ),
-    ],
-)
-async def test_getMapSetV2_virtual_walls(
-    data: dict[str, Any], expected_walls: list[dict[str, str | int]]
-) -> None:
+async def test_getMapSetV2_rooms_v2() -> None:
     mid = "199390082"
-    set_type = MapSetType.VIRTUAL_WALLS
+    msid = "8"
+    set_type = MapSetType.ROOMS
+    subsets_comp = "KLUv/QRYbQkA8k4qH1BJnTEAUTcKhN4AyDMuGmoj/HEQiYgQ8Tz4yG5mdkJJsr5jx1WuQkxjIDkC442Nv0S0QJNiGGeOqSoJwUwA40sP1TTGtTiAnATHML658MQySQTjqmwpXUtzNVVTab502ZKNr44/jxIwbuzBlO17LrVYHqcpjDuVu9rW2Mw1vhamrVNrQA4bwWQdL8Y3VWprz9gcV+Nt3I0jHA5RIykFRcRICGVgfI0gATYggCIJ5rYDyrgQ2IomYhArc8MsZlS2h4UkRLyQBcUnRmAZTEFcfstWEWcbJCwSpBjBzvzPGP5DAEjA0k2iE+AxD3Bv6LfYgkwegjGBoLirkL3BIIZ0VhEAAhR4Dl5A0Aa/0i9ohzgSX3JAyoGMiCe8rhUTxUjGirE9chY0oQmhDLNFpRg="
+    subsets = [3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
+    rooms_names = [
+        "Master bathroom",
+        "Main bathroom",
+        "Master bedroom",
+        "Child 1",
+        "Child 2",
+        "Hall",
+        "Child 3",
+        "Study",
+        "Living room",
+        "Guest bathroom",
+        "Laundry room",
+        "Kitchen",
+    ]
     json, firmware_event = get_request_json(
         get_success_body(
             {
                 "type": set_type,
                 "mid": mid,
+                "msid": msid,
                 "batid": "gheijg",
                 "serial": 1,
                 "index": 1,
+                "subsets": subsets_comp,
+                "infoSize": 780,
             }
-            | data
         )
     )
+    rooms = [
+        Room(room_name, subset, "")
+        for subset, room_name in zip(subsets, rooms_names, strict=False)
+    ]
+    events = [firmware_event, RoomsEvent(rooms)]
 
     await assert_command(
         GetMapSetV2(mid, set_type),
         json,
-        (
-            firmware_event,
-            *[
-                MapSubsetEvent(int(subs["mssid"]), set_type, str(subs["coordinates"]))
-                for subs in expected_walls
-            ],
-        ),
+        events,
     )
 
 
