@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import TYPE_CHECKING, cast
 from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
@@ -34,6 +33,7 @@ if TYPE_CHECKING:
 
     from _pytest.mark import ParameterSet
     from pytest_codspeed import BenchmarkFixture
+    from syrupy.assertion import SnapshotAssertion
 
     from deebot_client.event_bus import EventBus
     from deebot_client.events.base import Event
@@ -208,37 +208,29 @@ async def test_empty_maptrace(
 
 def extractor_for_test_get_svg_map(module: ModuleType, filename: str) -> ParameterSet:
     """Extract EVENTS and SVG from the module."""
-    required_attributes = ["EVENTS", "SVG", "DEVICE_CLASS"]
+    required_attributes = ["EVENTS", "DEVICE_CLASS"]
     if not all(hasattr(module, attr) for attr in required_attributes):
         msg = f"Module does not have required attributes: {required_attributes}"
         raise AttributeError(msg)
 
-    # To keep codspeed test history, we hide the params for the original test, which is now test_1
-    test_name = (
-        pytest.HIDDEN_PARAM
-        if filename == "test_1" and os.getenv("CI") == "true"
-        else f"{filename}-{module.DEVICE_CLASS}"
-    )
-
     return pytest.param(
         module.DEVICE_CLASS,
         module.EVENTS,
-        module.SVG,
-        id=test_name,
+        id=f"{filename}-{module.DEVICE_CLASS}",
     )
 
 
 @pytest.mark.parametrize(
-    ("device_class", "events", "expected_svg"),
+    ("device_class", "events"),
     load_data_folder("map", extractor_for_test_get_svg_map),
 )
 def test_get_svg_map(
     benchmark: BenchmarkFixture,
+    snapshot: SnapshotAssertion,
     execute_mock: AsyncMock,
     event_bus: EventBus,
     static_device_info: StaticDeviceInfo,
     events: list[Event],
-    expected_svg: str,
 ) -> None:
     """Test getting svg map."""
     event_loop = asyncio.new_event_loop()
@@ -256,4 +248,4 @@ def test_get_svg_map(
     def svg_map() -> str | None:
         return event_loop.run_until_complete(test_fn())
 
-    assert svg_map == expected_svg
+    assert svg_map == snapshot
