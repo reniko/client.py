@@ -38,4 +38,7 @@ class GetCachedMapInfo(JsonCommandWithMessageHandling, OnCachedMapInfo):
                 [map_obj.set.execute(map_id, entry) for entry in MapSetType]
             )
 
+            if map_obj.info:
+                result.requested_commands.append(map_obj.info.execute(map_id))
+
         return result

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
 import pytest
@@ -11,6 +11,7 @@ from deebot_client.events.map import (
     CachedMapInfoEvent,
     MajorMapEvent,
     MapChangedEvent,
+    MapInfoEvent,
     MapSetEvent,
     MapSubsetEvent,
     MapTraceEvent,
@@ -92,7 +93,7 @@ async def test_Map_subscriptions(
     assert capabilities_map is not None
     map_obj = Map(execute_mock, event_bus_mock, capabilities_map)
 
-    calls = [call(MapSetEvent, ANY), call(MapSubsetEvent, ANY)]
+    calls = [call(MapSetEvent, ANY), call(MapSubsetEvent, ANY), call(MapInfoEvent, ANY)]
     event_bus_mock.subscribe.assert_has_calls(calls)
     event_bus_mock.add_on_subscription_callback.assert_called_once_with(
         MapChangedEvent, ANY
@@ -174,10 +175,12 @@ async def test_invalid_map_piece_index(
     with pytest.raises(exception_class) as ex:
         await block_till_done(event_bus)
 
-    exceptions = ex.value.exceptions if isinstance(ex.value, ExceptionGroup) else [ex]
+    exceptions = (
+        ex.value.exceptions if isinstance(ex.value, ExceptionGroup) else [ex.value]
+    )
 
-    for ex in exceptions:
-        assert "Index out of bounds" in str(ex)
+    for err in exceptions:
+        assert "Index out of bounds" in str(err)
 
 
 async def test_get_svg_map_empty(
@@ -200,7 +203,7 @@ async def test_empty_maptrace(
         map_obj = await setup_map(execute_mock, event_bus, static_device_info)
         event_bus.notify(MapTraceEvent(0, 0, ""))
         await block_till_done(event_bus)
-        map_obj._map_data.add_trace_points.assert_not_called()
+        cast("Mock", map_obj._map_data.add_trace_points).assert_not_called()
 
 
 def extractor_for_test_get_svg_map(module: ModuleType, filename: str) -> ParameterSet:

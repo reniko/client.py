@@ -10,10 +10,11 @@ from deebot_client.commands.json import (
     GetMapSubSet,
     GetMapTrace,
 )
-from deebot_client.commands.json.map import GetMapSetV2
+from deebot_client.commands.json.map import GetMapInfoV2, GetMapSetV2
 from deebot_client.events import (
     Event,
     FirmwareEvent,
+    MapInfoEvent,
     MapSetEvent,
     MapSetType,
     MapSubsetEvent,
@@ -487,4 +488,58 @@ async def test_getMapTrace() -> None:
         handling_result=HandlingResult(
             HandlingState.SUCCESS, {"start": start, "total": total}, []
         ),
+    )
+
+
+async def test_getMapInfoV2() -> None:
+    mid = "98100521"
+    info = "KLUv/QRYmQAAW1siMSJdLFsiMiJdLFsiNiJdXbBRuA4="
+    json, firmware_event = get_request_json(
+        get_success_body(
+            {
+                "batid": "zaajbd",
+                "index": "1",
+                "info": info,
+                "infoSize": 19,
+                "mid": mid,
+                "msgid": "",
+                "outlineComplete": 0,
+                "outlineVer": "1",
+                "serial": "1",
+                "type": "0",
+                "using": 0,
+            }
+        )
+    )
+    await assert_command(
+        GetMapInfoV2(mid),
+        json,
+        (firmware_event, MapInfoEvent(mid, info)),
+    )
+
+
+async def test_getMapInfoV2_unsupported_version() -> None:
+    mid = "98100521"
+    json, firmware_event = get_request_json(
+        get_success_body(
+            {
+                "batid": "zaajbd",
+                "index": "1",
+                "info": "KLUv/QRYmQAAW1siMSJdLFsiMiJdLFsiNiJdXbBRuA4=",
+                "infoSize": 19,
+                "mid": mid,
+                "msgid": "",
+                "outlineComplete": 0,
+                "outlineVer": "2",
+                "serial": "1",
+                "type": "0",
+                "using": 0,
+            }
+        )
+    )
+    await assert_command(
+        GetMapInfoV2(mid),
+        json,
+        firmware_event,
+        handling_result=HandlingResult(HandlingState.ANALYSE_LOGGED),
     )

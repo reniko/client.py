@@ -21,6 +21,12 @@ class TracePoints:
     def clear(self) -> None:
         """Clear all trace points."""
 
+class MapInfo:
+    """Map info."""
+
+    def set(self, baset64_data: str) -> None:
+        """Set map info (base64-compressed JSON)."""
+
 class MapData:
     """Map data in rust."""
 
@@ -30,6 +36,10 @@ class MapData:
     @property
     def background_image(self) -> BackgroundImage:
         """Return background image."""
+
+    @property
+    def map_info(self) -> MapInfo:
+        """Return map info."""
 
     @property
     def trace_points(self) -> TracePoints:

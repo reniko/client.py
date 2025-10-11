@@ -1,9 +1,11 @@
 mod background_image;
 mod common;
+mod map_info;
 mod points;
 
 use background_image::{BackgroundImage, MAP_MAX_SIZE};
 use common::round;
+use map_info::MapInfo;
 use points::{points_to_svg_path, Point, TracePoints};
 
 use super::util::decompress_base64_data;
@@ -159,6 +161,8 @@ struct MapData {
     trace_points: Py<TracePoints>,
     #[pyo3(get)]
     background_image: Py<BackgroundImage>,
+    #[pyo3(get)]
+    map_info: Py<MapInfo>,
 }
 
 #[pymethods]
@@ -168,6 +172,7 @@ impl MapData {
         Ok(MapData {
             trace_points: Py::new(py, TracePoints::new())?,
             background_image: Py::new(py, BackgroundImage::new())?,
+            map_info: Py::new(py, MapInfo::new())?,
         })
     }
 
@@ -229,28 +234,39 @@ impl MapData {
                     ),
             );
 
-        // Add image
-        let (base64_image, viewbox) = match self
-            .background_image
-            .borrow(py)
-            .generate()
-            .map_err(|err| PyValueError::new_err(err.to_string()))?
-        {
-            Some(data) => data,
-            None => return Ok(None),
-        };
-        let image = Image::new()
-            .set("x", viewbox.min_x)
-            .set("y", viewbox.min_y)
-            .set("width", viewbox.width)
-            .set("height", viewbox.height)
-            .set("style", "image-rendering: pixelated")
-            .set("href", format!("data:image/png;base64,{base64_image}"));
+        let mut document = Document::new().add(defs);
 
-        let mut document = Document::new()
-            .set("viewBox", viewbox.to_svg_viewbox())
-            .add(defs)
-            .add(image);
+        // Create map from MapInfo, if exists, or generate background image
+        let viewbox = match self.map_info.borrow(py).generate() {
+            Some((map_elements, viewbox)) => {
+                // Append all map background elements to document
+                map_elements
+                    .into_iter()
+                    .for_each(|element| document.append(element));
+                viewbox
+            }
+            None => match self
+                .background_image
+                .borrow(py)
+                .generate()
+                .map_err(|err| PyValueError::new_err(err.to_string()))?
+            {
+                Some((base64_image, viewbox)) => {
+                    let image = Image::new()
+                        .set("x", viewbox.min_x)
+                        .set("y", viewbox.min_y)
+                        .set("width", viewbox.width)
+                        .set("height", viewbox.height)
+                        .set("style", "image-rendering: pixelated")
+                        .set("href", format!("data:image/png;base64,{base64_image}"));
+                    document.append(image);
+                    viewbox
+                }
+                None => return Ok(None),
+            },
+        };
+
+        document = document.set("viewBox", viewbox.to_svg_viewbox());
 
         for subset in &subsets {
             document.append(get_svg_subset(subset)?);

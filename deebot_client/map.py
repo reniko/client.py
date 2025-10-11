@@ -10,6 +10,7 @@ from deebot_client.events.map import CachedMapInfoEvent, MapChangedEvent
 
 from .events import (
     MajorMapEvent,
+    MapInfoEvent,
     MapSetEvent,
     MapSetType,
     MapSubsetEvent,
@@ -79,12 +80,14 @@ class Map:
             )
         )
 
+        async def on_map_info(event: MapInfoEvent) -> None:
+            self._map_data.set_map_info(event.info)
+
+        self._unsubscribers.append(event_bus.subscribe(MapInfoEvent, on_map_info))
+
     # ---------------------------- METHODS ----------------------------
 
-    async def _on_first_map_changed_subscription(self) -> Callable[[], None]:
-        """On first MapChanged subscription."""
-        unsubscribers = []
-
+    async def _subscribe_minor_major_map_events(self) -> list[Callable[[], None]]:
         async def on_major_map(event: MajorMapEvent) -> None:
             async with asyncio.TaskGroup() as tg:
                 for idx, value in enumerate(event.values):
@@ -98,12 +101,17 @@ class Map:
                             )
                         )
 
-        unsubscribers.append(self._event_bus.subscribe(MajorMapEvent, on_major_map))
-
         async def on_minor_map(event: MinorMapEvent) -> None:
             self._map_data.update_map_piece(event.index, event.value)
 
-        unsubscribers.append(self._event_bus.subscribe(MinorMapEvent, on_minor_map))
+        return [
+            self._event_bus.subscribe(MajorMapEvent, on_major_map),
+            self._event_bus.subscribe(MinorMapEvent, on_minor_map),
+        ]
+
+    async def _on_first_map_changed_subscription(self) -> Callable[[], None]:
+        """On first MapChanged subscription."""
+        unsubscribers = await self._subscribe_minor_major_map_events()
 
         async def on_cached_info(_: CachedMapInfoEvent) -> None:
             # We need to subscribe to it, otherwise it could happen
@@ -144,6 +152,7 @@ class Map:
             raise MapError("Please enable the map first")
 
         # TODO make it nice
+        self._event_bus.request_refresh(CachedMapInfoEvent)
         self._event_bus.request_refresh(PositionsEvent)
         self._event_bus.request_refresh(MapTraceEvent)
         self._event_bus.request_refresh(MajorMapEvent)
@@ -235,6 +244,11 @@ class MapData:
         return self._data.generate_svg(
             list(self._map_subsets.values()), self._positions
         )
+
+    def set_map_info(self, base64_info: str) -> None:
+        """Set compressed map info (parsing happens in Rust)."""
+        self._data.map_info.set(base64_info)
+        self._on_change()
 
     def teardown(self) -> None:
         """Teardown map data."""
