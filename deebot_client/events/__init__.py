@@ -286,6 +286,11 @@ class ChildLockEvent(EnableEvent):
 
 
 @dataclass(frozen=True)
+class BorderSpinEvent(EnableEvent):
+    """Border spin event."""
+
+
+@dataclass(frozen=True)
 class BorderSwitchEvent(EnableEvent):
     """Border switch event."""
 
