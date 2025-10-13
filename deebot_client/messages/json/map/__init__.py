@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from deebot_client.events.map import MajorMapEvent, MapSetType
+from deebot_client.events.map import MajorMapEvent, MapInfoEvent, MapSetType
 from deebot_client.message import HandlingResult, HandlingState, MessageBodyDataDict
 
 from .cached_map_info import OnCachedMapInfo
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 __all__ = [
     "OnCachedMapInfo",
     "OnMajorMap",
+    "OnMapInfoV2",
     "OnMapSetV2",
 ]
 
@@ -65,3 +66,28 @@ class OnMajorMap(MessageBodyDataDict):
             HandlingState.SUCCESS,
             {"map_id": map_id, "values": values},
         )
+
+
+class OnMapInfoV2(MessageBodyDataDict):
+    """On map info v2 command."""
+
+    NAME = "onMapInfo_V2"
+
+    @classmethod
+    def _handle_body_data_dict(
+        cls, event_bus: EventBus, data: dict[str, Any]
+    ) -> HandlingResult:
+        """Handle message->body->data and notify the correct event subscribers.
+
+        :return: A message response
+        """
+        if (outline_version := data.get("outlineVer")) == "0":
+            # Skip it as it will be sent for non-active maps
+            return HandlingResult.success()
+        if outline_version != "1":
+            # Unsupported version
+            return HandlingResult.analyse()
+
+        event_bus.notify(MapInfoEvent(map_id=data["mid"], info=data["info"]))
+
+        return HandlingResult.success()
