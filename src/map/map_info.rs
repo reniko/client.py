@@ -1,4 +1,4 @@
-use super::style::{CSSClass, get_class_names};
+use super::style::{CSSClass, ROOM_COLORS, get_class_names, get_style};
 use super::{RotationAngle, ViewBox, calc_point, decompress_base64_data};
 
 use super::points::{Point, points_to_svg_path};
@@ -45,6 +45,14 @@ impl TryFrom<&str> for MapInfoType {
 #[derive(Debug)]
 struct MapInfoTypeEntry(MapInfoType, Vec<MapInfoTypeDataEntry>);
 
+#[derive(Debug)]
+struct MapInfoLayer {
+    map_info_type: MapInfoType,
+    css: Vec<CSSClass>,
+    force_connected: bool,
+    colorize: bool,
+}
+
 impl<'de> Deserialize<'de> for MapInfoTypeEntry {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -88,8 +96,8 @@ impl MapInfo {
         let mut svg_elements: Vec<Box<dyn svg::node::Node>> = Vec::with_capacity(order.len());
         let mut used_styles = OrderSet::new();
 
-        for (map_info_type, css, force_connected) in order {
-            if let Some(entries) = self.data.get(&map_info_type) {
+        for layer in order {
+            if let Some(entries) = self.data.get(&layer.map_info_type) {
                 if entries.is_empty() {
                     continue;
                 }
@@ -114,53 +122,80 @@ impl MapInfo {
                     })
                     .collect();
 
-                let mut group = Group::new().set("class", get_class_names(&css));
-                for entry in &entries {
+                let mut group = Group::new().set("class", get_class_names(&layer.css));
+                for (index, entry) in entries.iter().enumerate() {
                     if let Some(path) =
-                        points_to_svg_path(&entry.points, entry.close_path, force_connected)
+                        points_to_svg_path(&entry.points, entry.close_path, layer.force_connected)
                     {
+                        let path = if layer.colorize {
+                            let color_class = ROOM_COLORS[index % ROOM_COLORS.len()];
+                            used_styles.insert(color_class);
+                            path.set("class", get_style(&color_class).class_name)
+                        } else {
+                            path
+                        };
                         group = group.add(path);
                     }
                 }
                 svg_elements.push(Box::new(group));
-                used_styles.insert(css);
-                if map_info_type == MapInfoType::Outline {
+                used_styles.extend(layer.css);
+                if layer.map_info_type == MapInfoType::Outline {
                     viewbox = calc_viewbox(&entries);
                 }
             }
         }
 
-        Some((
-            svg_elements,
-            viewbox?,
-            used_styles.into_iter().flatten().collect(),
-        ))
+        Some((svg_elements, viewbox?, used_styles))
     }
 
-    fn get_order(&self) -> [(MapInfoType, Vec<CSSClass>, bool); 3] {
+    fn get_order(&self) -> Vec<MapInfoLayer> {
         if self.data.contains_key(&MapInfoType::BlockLine) {
-            [
-                (MapInfoType::Room, vec![CSSClass::RoomUnreachable], false),
-                (MapInfoType::BlockLine, vec![CSSClass::RoomReachable], false),
-                (
-                    MapInfoType::Outline,
-                    vec![CSSClass::FillNone, CSSClass::OutlineStroke],
-                    false,
-                ),
+            vec![
+                MapInfoLayer {
+                    map_info_type: MapInfoType::Room,
+                    css: vec![],
+                    force_connected: false,
+                    colorize: true,
+                },
+                MapInfoLayer {
+                    map_info_type: MapInfoType::Room,
+                    css: vec![CSSClass::RoomUnreachable],
+                    force_connected: false,
+                    colorize: false,
+                },
+                MapInfoLayer {
+                    map_info_type: MapInfoType::BlockLine,
+                    css: vec![],
+                    force_connected: false,
+                    colorize: true,
+                },
+                MapInfoLayer {
+                    map_info_type: MapInfoType::Outline,
+                    css: vec![CSSClass::FillNone, CSSClass::OutlineStroke],
+                    force_connected: false,
+                    colorize: false,
+                },
             ]
         } else {
-            [
-                (MapInfoType::Outline, vec![CSSClass::RoomUnreachable], true),
-                (
-                    MapInfoType::Room,
-                    vec![CSSClass::RoomReachable, CSSClass::OutlineStroke],
-                    false,
-                ),
-                (
-                    MapInfoType::Outline,
-                    vec![CSSClass::FillNone, CSSClass::OutlineStroke],
-                    false,
-                ),
+            vec![
+                MapInfoLayer {
+                    map_info_type: MapInfoType::Outline,
+                    css: vec![CSSClass::RoomUnknown],
+                    force_connected: true,
+                    colorize: false,
+                },
+                MapInfoLayer {
+                    map_info_type: MapInfoType::Room,
+                    css: vec![CSSClass::OutlineStroke],
+                    force_connected: false,
+                    colorize: true,
+                },
+                MapInfoLayer {
+                    map_info_type: MapInfoType::Outline,
+                    css: vec![CSSClass::FillNone, CSSClass::OutlineStroke],
+                    force_connected: false,
+                    colorize: false,
+                },
             ]
         }
     }

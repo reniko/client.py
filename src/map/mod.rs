@@ -9,7 +9,7 @@ use common::round;
 use map_info::MapInfo;
 use ordermap::OrderSet;
 use points::{Point, TracePoints, points_to_svg_path};
-use style::{CSSClass, get_style};
+use style::{CSSClass, get_style, get_used_definitions};
 
 use super::util::decompress_base64_data;
 use log::debug;
@@ -208,7 +208,7 @@ impl MapData {
         positions: Vec<Position>,
         rotation: RotationAngle,
     ) -> PyResult<Option<String>> {
-        let defs = Definitions::new()
+        let mut defs = Definitions::new()
             .add(
                 // Gradient used by Bot icon
                 RadialGradient::new()
@@ -263,18 +263,14 @@ impl MapData {
         let mut styles = OrderSet::new();
         styles.insert(CSSClass::Path);
 
-        let mut document = Document::new().add(defs);
+        let mut document = Document::new();
 
         // Create map from MapInfo, if exists, or generate background image
         let viewbox = match self.map_info.borrow(py).generate(rotation) {
             Some((map_elements, viewbox, info_styles)) => {
                 // Append all map background elements to document
-                map_elements
-                    .into_iter()
-                    .for_each(|element| document.append(element));
-                info_styles.into_iter().for_each(|e| {
-                    styles.insert(e);
-                });
+                map_elements.into_iter().for_each(|e| document.append(e));
+                styles.extend(info_styles);
                 viewbox
             }
             _ => {
@@ -299,7 +295,12 @@ impl MapData {
             }
         };
 
-        document = document.set("viewBox", viewbox.to_svg_viewbox());
+        // Add required definitions based on used CSS classes
+        get_used_definitions(&styles)
+            .into_iter()
+            .for_each(|def| defs.append(def));
+
+        document = document.add(defs).set("viewBox", viewbox.to_svg_viewbox());
 
         if !subsets.is_empty() {
             let group_css = CSSClass::WallBase;
