@@ -179,3 +179,32 @@ async def test_CleanArea(
     command: CleanArea | CleanAreaV2, args: dict[str, str]
 ) -> None:
     await assert_execute_command(command, args)
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_args"),
+    [
+        (
+            CleanAction.START,
+            {"act": "start", "content": {"type": "auto"}},
+        ),
+        (
+            CleanAction.PAUSE,
+            {"act": "pause", "content": {"type": "auto"}},
+        ),
+        (
+            CleanAction.STOP,
+            {"act": "stop", "content": {"type": "auto"}},
+        ),
+        (
+            CleanAction.RESUME,
+            {"act": "resume", "content": {"type": "auto"}},
+        ),
+    ],
+    ids=["start", "pause", "stop", "resume"],
+)
+async def test_CleanMower_args(
+    action: CleanAction, expected_args: dict[str, Any]
+) -> None:
+    command = CleanMower(action)
+    assert command._args == expected_args
