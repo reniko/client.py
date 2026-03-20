@@ -91,6 +91,12 @@ class CleanV2(Clean):
         return args
 
 
+class CleanMower(CleanV2):
+    """Clean command for mower devices that use the 'clean' command name with V2 content format."""
+
+    NAME = "clean"
+
+
 class CleanAreaV2(CleanV2):
     """Clean area command."""
 
