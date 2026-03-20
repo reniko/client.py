@@ -107,6 +107,23 @@ async def test_Clean_act(
 
 
 @pytest.mark.parametrize(
+    ("action", "expected_content"),
+    [
+        (CleanAction.START, {"type": "auto"}),
+        (CleanAction.RESUME, {"type": "auto"}),
+        (CleanAction.PAUSE, {"type": ""}),
+        (CleanAction.STOP, {"type": ""}),
+    ],
+    ids=["start", "resume", "pause", "stop"],
+)
+async def test_CleanV2_content(
+    action: CleanAction, expected_content: dict[str, str]
+) -> None:
+    command = CleanV2(action)
+    assert command._args == {"act": action.value, "content": expected_content}
+
+
+@pytest.mark.parametrize(
     ("command", "args"),
     [
         (

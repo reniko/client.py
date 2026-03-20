@@ -84,7 +84,7 @@ class CleanV2(Clean):
         content: dict[str, str] = {}
         args = {"act": action.value, "content": content}
         match action:
-            case CleanAction.START:
+            case CleanAction.START | CleanAction.RESUME:
                 content["type"] = CleanMode.AUTO.value
             case CleanAction.STOP | CleanAction.PAUSE:
                 content["type"] = ""
