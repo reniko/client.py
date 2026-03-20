@@ -62,6 +62,7 @@ __all__ = [
     "Charge",
     "Clean",
     "CleanArea",
+    "CleanMower",
     "CleanV2",
     "ClearMap",
     "GetAdvancedMode",

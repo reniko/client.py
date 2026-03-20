@@ -84,21 +84,17 @@ class CleanV2(Clean):
         content: dict[str, str] = {}
         args = {"act": action.value, "content": content}
         match action:
-            case CleanAction.START:
+            case CleanAction.START | CleanAction.RESUME:
                 content["type"] = CleanMode.AUTO.value
             case CleanAction.STOP | CleanAction.PAUSE:
                 content["type"] = ""
         return args
 
 
-class CleanMower(Clean):
-    """Clean command for mowers (e.g. GOAT A1600 RTK, GOAT O500 Panorama).
+class CleanMower(CleanV2):
+    """Clean command for mower devices that use the 'clean' command name with V2 content format."""
 
-    Uses 'clean' as command name with a content-wrapped body format.
-    """
-
-    def _get_args(self, action: CleanAction) -> dict[str, Any]:
-        return {"act": action.value, "content": {"type": CleanMode.AUTO.value}}
+    NAME = "clean"
 
 
 class CleanAreaV2(CleanV2):
