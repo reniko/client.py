@@ -91,6 +91,16 @@ class CleanV2(Clean):
         return args
 
 
+class CleanMower(Clean):
+    """Clean command for mowers (e.g. GOAT A1600 RTK, GOAT O500 Panorama).
+
+    Uses 'clean' as command name with a content-wrapped body format.
+    """
+
+    def _get_args(self, action: CleanAction) -> dict[str, Any]:
+        return {"act": action.value, "content": {"type": CleanMode.AUTO.value}}
+
+
 class CleanAreaV2(CleanV2):
     """Clean area command."""
 
