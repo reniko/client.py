@@ -166,6 +166,30 @@ async def test_get_static_device_info(
             },
         ),
         (
+            "xmp9ds",
+            {
+                AdvancedModeEvent: [GetAdvancedMode()],
+                AvailabilityEvent: [GetBattery(is_available_check=True)],
+                BatteryEvent: [GetBattery()],
+                BorderSwitchEvent: [GetBorderSwitch()],
+                CutDirectionEvent: [GetCutDirection()],
+                ChildLockEvent: [GetChildLock()],
+                CrossMapBorderWarningEvent: [GetCrossMapBorderWarning()],
+                CustomCommandEvent: [],
+                ErrorEvent: [GetError()],
+                LifeSpanEvent: [GetLifeSpan([LifeSpan.BLADE, LifeSpan.LENS_BRUSH])],
+                MoveUpWarningEvent: [GetMoveUpWarning()],
+                NetworkInfoEvent: [GetNetInfo()],
+                ReportStatsEvent: [],
+                SafeProtectEvent: [GetSafeProtect()],
+                StateEvent: [GetChargeState(), GetCleanInfoV2()],
+                StatsEvent: [GetStats()],
+                TotalStatsEvent: [GetTotalStats()],
+                TrueDetectEvent: [GetTrueDetect()],
+                VolumeEvent: [GetVolume()],
+            },
+        ),
+        (
             "yna5xi",
             {
                 AdvancedModeEvent: [GetAdvancedMode()],
@@ -245,7 +269,7 @@ async def test_get_static_device_info(
             },
         ),
     ],
-    ids=["5xu9h3", "itk04l", "yna5xi", "p95mgv"],
+    ids=["5xu9h3", "itk04l", "xmp9ds", "yna5xi", "p95mgv"],
 )
 async def test_capabilities_event_extraction(
     class_: str, expected: dict[type[Event], list[Command]]
