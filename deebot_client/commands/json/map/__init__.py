@@ -331,6 +331,14 @@ class GetMapTrace(JsonCommandWithMessageHandling, MessageBodyDataDict):
 
         :return: A message response
         """
+        if "info" in data:
+            # V2 format: {mid, batid, serial, index, type, info, infoSize}
+            # index is 1-based; start=0 on the first chunk clears old trace points
+            start = int(data["index"]) - 1
+            total = int(data["infoSize"])
+            event_bus.notify(MapTraceEvent(start=start, total=total, data=data["info"]))
+            return HandlingResult.success()
+
         total = int(data["totalCount"])
         start = int(data["traceStart"])
 
