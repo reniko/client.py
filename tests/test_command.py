@@ -10,7 +10,7 @@ import pytest
 
 from deebot_client.command import Command, InitParam
 from deebot_client.commands.json.common import JsonCommandMqttP2P
-from deebot_client.exceptions import ApiTimeoutError, DeebotError
+from deebot_client.exceptions import ApiError, ApiTimeoutError, DeebotError
 from deebot_client.message import HandlingResult
 
 if TYPE_CHECKING:
@@ -114,3 +114,35 @@ async def test_execute_api_timeout_error(
         logging.WARNING,
         "Could not execute command TestCommand for get_class: Timeout reached",
     ) in caplog.record_tuples
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    ["Session is closed", "Unknown error occurred", "Request failed"],
+    ids=["session_closed", "unknown_error", "request_failed"],
+)
+async def test_execute_api_error_no_traceback(
+    caplog: pytest.LogCaptureFixture,
+    authenticator: Mock,
+    api_device_info: ApiDeviceInfo,
+    event_bus_mock: Mock,
+    error_message: str,
+) -> None:
+    """ApiError should be logged as a warning without a traceback (exc_info=False)."""
+    command = _TestCommand(1)
+    authenticator.post_authenticated.side_effect = ApiError(error_message)
+    result = await command.execute(authenticator, api_device_info, event_bus_mock)
+    assert not result.device_reached
+    assert (
+        "deebot_client.command",
+        logging.WARNING,
+        f"Could not execute command TestCommand for get_class: {error_message}",
+    ) in caplog.record_tuples
+    # Ensure no exc_info traceback was attached to the warning record
+    warning_records = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "TestCommand" in r.message
+    ]
+    assert warning_records, "Expected at least one warning record"
+    assert all(r.exc_info is None for r in warning_records)

@@ -157,3 +157,44 @@ async def test_post_retries_on_server_disconnected(
         else:
             with pytest.raises(ApiError):
                 await client.post("some/path", {})
+
+
+async def test_post_raises_api_error_on_session_closed(
+    rest_config: RestConfiguration,
+) -> None:
+    """RuntimeError('Session is closed') should be converted to ApiError immediately (no retry)."""
+    client = _AuthClient(rest_config, "test_account", "test_password")
+
+    call_count = 0
+
+    def make_post_cm(*_args: object, **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(side_effect=RuntimeError("Session is closed"))
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    with patch.object(rest_config.session, "post", side_effect=make_post_cm):
+        with pytest.raises(ApiError, match="Session is closed"):
+            await client.post("some/path", {})
+
+    # Session is closed is not retried; only one attempt should be made
+    assert call_count == 1
+
+
+async def test_post_reraises_other_runtime_errors(
+    rest_config: RestConfiguration,
+) -> None:
+    """RuntimeErrors unrelated to a closed session should propagate unchanged."""
+    client = _AuthClient(rest_config, "test_account", "test_password")
+
+    def make_post_cm(*_args: object, **_kwargs: object) -> MagicMock:
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(side_effect=RuntimeError("Some other error"))
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    with patch.object(rest_config.session, "post", side_effect=make_post_cm):
+        with pytest.raises(RuntimeError, match="Some other error"):
+            await client.post("some/path", {})

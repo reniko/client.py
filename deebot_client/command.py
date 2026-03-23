@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, final
 
 from deebot_client.events import AvailabilityEvent
 from deebot_client.exceptions import (
+    ApiError,
     ApiTimeoutError,
     DeebotError,
 )
@@ -113,6 +114,14 @@ class Command(ABC):
                 "Could not execute command %s for %s: Timeout reached",
                 self.NAME,
                 device_info["class"],
+            )
+            return HandlingResult(HandlingState.ERROR), {}
+        except ApiError as ex:
+            _LOGGER.warning(
+                "Could not execute command %s for %s: %s",
+                self.NAME,
+                device_info["class"],
+                ex,
             )
             return HandlingResult(HandlingState.ERROR), {}
 

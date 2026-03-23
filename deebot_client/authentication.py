@@ -343,6 +343,10 @@ class _AuthClient:
                     MAX_RETRIES,
                 )
                 continue
+            except RuntimeError as ex:
+                if "Session is closed" in str(ex):
+                    raise ApiError("Session is closed") from ex
+                raise
 
         raise ApiError("Unknown error occurred")
 
