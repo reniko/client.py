@@ -9,7 +9,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
-from aiohttp import ClientResponseError, ClientSession, ClientTimeout, hdrs
+from aiohttp import ClientResponseError, ClientSession, ClientTimeout, ServerDisconnectedError, hdrs
 
 from .const import COUNTRY_CHINA, PATH_API_USERS_USER, REALM
 from .exceptions import (
@@ -335,6 +335,14 @@ class _AuthClient:
                     continue
 
                 raise ApiError from ex
+            except ServerDisconnectedError:
+                _LOGGER.debug(
+                    "Server disconnected on %s, retrying (%d/%d)...",
+                    logger_request_params,
+                    i + 1,
+                    MAX_RETRIES,
+                )
+                continue
 
         raise ApiError("Unknown error occurred")
 

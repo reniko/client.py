@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiohttp import ServerDisconnectedError
 
-from deebot_client.authentication import Authenticator, create_rest_config
+from deebot_client.authentication import Authenticator, _AuthClient, create_rest_config
+from deebot_client.exceptions import ApiError
 from deebot_client.models import Credentials
 
 if TYPE_CHECKING:
@@ -112,3 +114,46 @@ def test_config_override_rest_url(
     assert config.portal_url == expected_portal_url
     assert config.login_url == expected_login_url
     assert config.auth_code_url == expected_auth_code_url
+
+
+@pytest.mark.parametrize(
+    ("num_disconnects", "should_succeed"),
+    [
+        (1, True),  # 1 disconnect then success
+        (2, True),  # 2 disconnects then success
+        (3, False),  # all retries exhausted → ApiError
+    ],
+    ids=["one_disconnect", "two_disconnects", "all_retries_exhausted"],
+)
+async def test_post_retries_on_server_disconnected(
+    rest_config: RestConfiguration,
+    num_disconnects: int,
+    should_succeed: bool,
+) -> None:
+    """ServerDisconnectedError should be retried; ApiError raised when all retries fail."""
+    client = _AuthClient(rest_config, "test_account", "test_password")
+
+    call_count = 0
+
+    def make_post_cm(*_args: object, **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        cm = MagicMock()
+        if call_count <= num_disconnects:
+            cm.__aenter__ = AsyncMock(side_effect=ServerDisconnectedError())
+        else:
+            response = MagicMock()
+            response.status = 200
+            response.raise_for_status = MagicMock()
+            response.json = AsyncMock(return_value={"result": "ok"})
+            cm.__aenter__ = AsyncMock(return_value=response)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    with patch.object(rest_config.session, "post", side_effect=make_post_cm):
+        if should_succeed:
+            result = await client.post("some/path", {})
+            assert result == {"result": "ok"}
+        else:
+            with pytest.raises(ApiError):
+                await client.post("some/path", {})
