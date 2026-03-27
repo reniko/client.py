@@ -491,6 +491,39 @@ async def test_getMapTrace() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("index", "expected_start"),
+    [
+        ("1", 0),
+        ("2", 1),
+        ("3", 2),
+    ],
+)
+async def test_getMapTrace_v2(index: str, expected_start: int) -> None:
+    """Test getMapTrace v2 format with info/infoSize/index fields."""
+    mid = "123456789"
+    info = "ntZcfjXKQM8zln+KxnN+qx8QzbOb202q6VwSKVcBCom8Kbmx034CiuIPm0/1AQIs"
+    info_size = 9773
+    json, firmware_event = get_request_json(
+        get_success_body(
+            {
+                "mid": mid,
+                "batid": "epnmdj",
+                "serial": "4",
+                "index": index,
+                "type": "0",
+                "info": info,
+                "infoSize": info_size,
+            }
+        )
+    )
+    await assert_command(
+        GetMapTrace(),
+        json,
+        (firmware_event, MapTraceEvent(start=expected_start, total=info_size, data=info)),
+    )
+
+
 async def test_getMapInfoV2() -> None:
     mid = "98100521"
     info = "KLUv/QRYmQAAW1siMSJdLFsiMiJdLFsiNiJdXbBRuA4="
