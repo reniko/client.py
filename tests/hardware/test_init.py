@@ -261,7 +261,7 @@ async def test_get_static_device_info(
                 NetworkInfoEvent: [GetNetInfo()],
                 ReportStatsEvent: [],
                 SafeProtectEvent: [GetSafeProtect()],
-                StateEvent: [GetChargeState(), GetCleanInfoV2()],
+                StateEvent: [GetChargeState(), GetCleanInfo()],
                 StatsEvent: [GetStats()],
                 TotalStatsEvent: [GetTotalStats()],
                 TrueDetectEvent: [GetTrueDetect()],
