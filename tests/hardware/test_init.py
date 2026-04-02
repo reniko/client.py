@@ -264,7 +264,6 @@ async def test_get_static_device_info(
                 StateEvent: [GetChargeState(), GetCleanInfo()],
                 StatsEvent: [GetStats()],
                 TotalStatsEvent: [GetTotalStats()],
-                TrueDetectEvent: [GetTrueDetect()],
                 VolumeEvent: [GetVolume()],
             },
         ),
