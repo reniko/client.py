@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from deebot_client.events import StateEvent
 from deebot_client.logging_filter import get_logger
@@ -22,6 +22,7 @@ class Clean(ExecuteCommand):
     """Clean command."""
 
     NAME = "clean"
+    _v2_args: ClassVar[bool] = False
 
     def __init__(self, action: CleanAction) -> None:
         super().__init__(self._get_args(action))
@@ -49,6 +50,15 @@ class Clean(ExecuteCommand):
         return await super()._execute(authenticator, device_info, event_bus)
 
     def _get_args(self, action: CleanAction) -> dict[str, Any]:
+        if self._v2_args:
+            content: dict[str, str] = {}
+            args: dict[str, Any] = {"act": action.value, "content": content}
+            match action:
+                case CleanAction.START | CleanAction.RESUME:
+                    content["type"] = CleanMode.AUTO.value
+                case CleanAction.STOP | CleanAction.PAUSE:
+                    content["type"] = ""
+            return args
         args = {"act": action.value}
         if action == CleanAction.START:
             args["type"] = CleanMode.AUTO.value
@@ -79,16 +89,13 @@ class CleanV2(Clean):
     """Clean V2 command."""
 
     NAME = "clean_V2"
+    _v2_args: ClassVar[bool] = True
 
-    def _get_args(self, action: CleanAction) -> dict[str, Any]:
-        content: dict[str, str] = {}
-        args = {"act": action.value, "content": content}
-        match action:
-            case CleanAction.START:
-                content["type"] = CleanMode.AUTO.value
-            case CleanAction.STOP | CleanAction.PAUSE:
-                content["type"] = ""
-        return args
+
+class CleanMower(Clean):
+    """Clean command for mower devices: 'clean' endpoint with V2 content format."""
+
+    _v2_args: ClassVar[bool] = True
 
 
 class CleanAreaV2(CleanV2):
