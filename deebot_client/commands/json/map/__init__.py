@@ -331,15 +331,21 @@ class GetMapTrace(JsonCommandWithMessageHandling, MessageBodyDataDict):
 
         :return: A message response
         """
-        total = int(data["totalCount"])
-        start = int(data["traceStart"])
-
-        if "traceValue" not in data:
-            # TODO verify that this is legit
+        if "traceValue" in data:
+            # V1 format: totalCount, traceStart, traceValue
+            total = int(data["totalCount"])
+            start = int(data["traceStart"])
+            trace_data = data["traceValue"]
+        elif "info" in data:
+            # V2 format (mowers): serial, index, info, infoSize
+            total = int(data.get("serial", 0))
+            start = int(data.get("index", 0))
+            trace_data = data["info"]
+        else:
             return HandlingResult.analyse()
 
         event_bus.notify(
-            MapTraceEvent(start=start, total=total, data=data["traceValue"])
+            MapTraceEvent(start=start, total=total, data=trace_data)
         )
         return HandlingResult(HandlingState.SUCCESS, {"start": start, "total": total})
 
