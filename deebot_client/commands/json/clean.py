@@ -53,11 +53,8 @@ class Clean(ExecuteCommand):
         if self._v2_args:
             content: dict[str, str] = {}
             args: dict[str, Any] = {"act": action.value, "content": content}
-            match action:
-                case CleanAction.START | CleanAction.RESUME:
-                    content["type"] = CleanMode.AUTO.value
-                case CleanAction.STOP | CleanAction.PAUSE:
-                    content["type"] = ""
+            # Cloud rejects empty type with error 20003; real app always sends a mode
+            content["type"] = CleanMode.AUTO.value
             return args
         args = {"act": action.value}
         if action == CleanAction.START:

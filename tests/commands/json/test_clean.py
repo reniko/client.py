@@ -112,8 +112,8 @@ async def test_Clean_act(
     [
         (CleanAction.START, {"type": "auto"}),
         (CleanAction.RESUME, {"type": "auto"}),
-        (CleanAction.PAUSE, {"type": ""}),
-        (CleanAction.STOP, {"type": ""}),
+        (CleanAction.PAUSE, {"type": "auto"}),
+        (CleanAction.STOP, {"type": "auto"}),
     ],
     ids=["start", "resume", "pause", "stop"],
 )
@@ -130,8 +130,8 @@ async def test_CleanMower_content(
     [
         (CleanAction.START, {"type": "auto"}),
         (CleanAction.RESUME, {"type": "auto"}),
-        (CleanAction.PAUSE, {"type": ""}),
-        (CleanAction.STOP, {"type": ""}),
+        (CleanAction.PAUSE, {"type": "auto"}),
+        (CleanAction.STOP, {"type": "auto"}),
     ],
     ids=["start", "resume", "pause", "stop"],
 )
