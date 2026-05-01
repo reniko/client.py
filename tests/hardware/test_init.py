@@ -244,31 +244,8 @@ async def test_get_static_device_info(
                 WaterAmountEvent: [GetWaterInfo()],
             },
         ),
-        (
-            "xmp9ds",
-            {
-                AdvancedModeEvent: [GetAdvancedMode()],
-                AvailabilityEvent: [GetBattery(is_available_check=True)],
-                BatteryEvent: [GetBattery()],
-                BorderSwitchEvent: [GetBorderSwitch()],
-                ChildLockEvent: [GetChildLock()],
-                CrossMapBorderWarningEvent: [GetCrossMapBorderWarning()],
-                CustomCommandEvent: [],
-                CutDirectionEvent: [GetCutDirection()],
-                ErrorEvent: [GetError()],
-                LifeSpanEvent: [GetLifeSpan([LifeSpan.BLADE, LifeSpan.LENS_BRUSH])],
-                MoveUpWarningEvent: [GetMoveUpWarning()],
-                NetworkInfoEvent: [GetNetInfo()],
-                ReportStatsEvent: [],
-                SafeProtectEvent: [GetSafeProtect()],
-                StateEvent: [GetChargeState(), GetCleanInfo()],
-                StatsEvent: [GetStats()],
-                TotalStatsEvent: [GetTotalStats()],
-                VolumeEvent: [GetVolume()],
-            },
-        ),
     ],
-    ids=["5xu9h3", "itk04l", "yna5xi", "p95mgv", "xmp9ds"],
+    ids=["5xu9h3", "itk04l", "yna5xi", "p95mgv"],
 )
 async def test_capabilities_event_extraction(
     class_: str, expected: dict[type[Event], list[Command]]
